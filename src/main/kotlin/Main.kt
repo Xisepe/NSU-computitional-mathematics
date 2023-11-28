@@ -13,6 +13,7 @@ import javax.swing.SwingUtilities
 import kotlin.math.abs
 
 fun main(args: Array<String>) {
+
     SwingUtilities.invokeLater {
         val frame = JFrame("Plots")
         frame.defaultCloseOperation = JFrame.EXIT_ON_CLOSE
@@ -27,7 +28,7 @@ fun main(args: Array<String>) {
 }
 
 fun createChartPanel(): JPanel {
-    val dataset = createDataset()
+    val dataset = createDataset(10001, -1.0, 1.0)
     val chart = createChart(dataset)
     val chartPanel = ChartPanel(chart)
     chartPanel.isDomainZoomable = true
@@ -35,24 +36,19 @@ fun createChartPanel(): JPanel {
     return chartPanel
 }
 
-fun createDataset(): XYSeriesCollection {
-    val left = -1.0
-    val len = 2.0
+fun createDataset(plotDots: Int, left: Double, right: Double): XYSeriesCollection {
+    val (xs,ys) = createDots(left, right, 5, ::abs)
+    val f = xs.mapIndexed { index, doubles -> Spline.Builder.build(doubles, ys[index]) }.toTypedArray()
+    f.onEach {
+        println("err=${MathUtils.calcError(1000, left, right, it::getValue, ::abs)}") }
 
-    val stepSizes = listOf(0.2, 0.1, 0.05)
-    val seriesNames = listOf("n=11", "n=21", "n=41")
+    val seriesX = xs.map { XYSeries("n=${it.size}") }
 
-    val xs = stepSizes.map { buildArr(len, left, it) }
-    val ys = xs.map { it.map { d -> abs(d) }.toDoubleArray() }
-
-    val seriesX = seriesNames.map { XYSeries(it) }
-
-    val step = 1.0 / 10000
-    var x = -1.0
-    while (x < 1.0) {
+    val step = (right - left)/(plotDots - 1)
+    var x = left
+    repeat (plotDots) {
         seriesX.forEachIndexed { index, xySeries ->
-            val newtonInterpolation = newtonInterpolation(xs[index], ys[index], x)
-            xySeries.add(x, newtonInterpolation)
+            xySeries.add(x, f[index].getValue(x))
         }
         x += step
     }
@@ -81,33 +77,19 @@ fun configureAxis(axis: NumberAxis, range: Range) {
     axis.standardTickUnits = NumberAxis.createStandardTickUnits()
 }
 
-fun buildArr(len: Double, left: Double, h: Double) =
-    DoubleArray(getDots(len, h)) { i -> left + h * i }
-
-fun getDots(len: Double, h: Double): Int = (len / h).toInt() + 1
-
-fun dividedDifference(x: DoubleArray, y: DoubleArray, n: Int): Double {
-    var res = 0.0
-    for (i in 0 until n) {
-        val tmp = x.foldIndexed(1.0) { index, acc, d ->
-            if (index == i || index >= n)
-                acc
-            else acc * (x[i] - d)
-        }
-        res += y[i] / tmp
+fun createDots(left: Double, right: Double, iters: Int, f: (Double) -> Double): Pair<List<DoubleArray>, List<DoubleArray>> {
+    val dots = IntArray(iters) {
+        (it + 1) * 10 + 1
     }
-    return res
+
+    val xs = dots.map { splitInSeq(it, left, right) }
+    val ys = xs.map { it.map { e-> f(e) }.toDoubleArray()}
+    return Pair(xs, ys)
 }
 
-fun newtonInterpolation(x: DoubleArray, y: DoubleArray, value: Double): Double {
-    var result = y[0]
-    for (i in 0 until x.size - 1) {
-        result += dividedDifference(x, y, i + 2) * x.foldIndexed(1.0) { index, acc, d ->
-            if (index > i)
-                acc
-            else
-                acc * (value - d)
-        }
+fun splitInSeq(dots: Int, left: Double, right:Double): DoubleArray {
+    val h = (right - left) / (dots - 1)
+    return DoubleArray(dots) {
+        left + h * it
     }
-    return result
 }
